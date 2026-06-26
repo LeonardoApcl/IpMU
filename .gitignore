@@ -3,8 +3,18 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
+# C extensions / biblioteca compilada do IpMU (gerada por build.ps1)
 *.so
+*.dll
+*.obj
+*.exp
+*.lib
+
+# Executável e saídas do IpMU
+ipmu.exe
+ipmu
+*.o
+solucao.json
 
 # Distribution / packaging
 .Python
