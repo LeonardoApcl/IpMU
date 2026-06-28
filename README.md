@@ -5,7 +5,7 @@ Problem with Upgrades* (IpMU), baseada no artigo de Salazar et al.,
 *Knowledge-Based Systems* 339 (2026). O núcleo de otimização é em C++; a
 visualização é em Python.
 
-## Modelo (fiel ao artigo)
+## Modelo 
 
 - Grafo dirigido com dois pesos por aresta: **tempo** `c1` e **custo** `c2`; cada
   nó tem uma **demanda**.
@@ -70,7 +70,7 @@ Opções do CLI:
 
 | Flag | Padrão | Descrição |
 |------|--------|-----------|
-| `--alg <bvns\|rvns>` | bvns | metaheurística |
+| `--alg <bvns\|rvns\|salazar>` | bvns | metaheurística (`salazar` = GRASP multi-start do artigo) |
 | `--shake <random\|greedy>` | random | estratégia de shaking |
 | `--alpha <A>` | 0.51 | voracidade da construção GRASP |
 | `--kmax <K>` | p | máx. de trocas no shaking |
@@ -95,19 +95,40 @@ ambos são intercambiáveis por design, para facilitar comparações experimenta
 
 ## Reproduzir o benchmark
 
-`python/run_benchmark.py` resolve cada instância com o `ipmu.exe`, grava o progresso
-num checkpoint CSV (`results/raw/<alg>_seed<seed>.csv`, append-only com flush por
-instância) e gera uma tabela por grupo `n` em `results/report/`, com `Dev` e `isBest?`
-calculados contra a coluna `SOTA` do `.xlsx`.
+### Benchmark completo (5 configurações)
 
-É **pausável e retomável**: pode ser parado a qualquer momento (Ctrl+C) sem perder o
-que já terminou; basta re-executar para continuar de onde parou.
+`python/run_full_benchmark.py` roda as **5 configurações** em sequência — as 4 variantes
+do VNS (`bvns/rvns × random/greedy`) e o GRASP do artigo (`--alg salazar`) — e gera
+tabelas comparativas em `results/report/`, incluindo um relatório combinado
+(`combined_n<n>.csv`) com as 5 configs lado a lado e a coluna `SOTA` de referência.
+
+Cada configuração tem seu **checkpoint CSV próprio** em `results/raw/<config>_seed<seed>.csv`.
+É **pausável e retomável**: Ctrl+C a qualquer momento preserva o progresso; re-executar
+continua de onde parou.
 
 ```powershell
 .\build.ps1
+# roda tudo (padrão: instances/, todas as configs):
+.\.venv\Scripts\python.exe python\run_full_benchmark.py
+# parar com Ctrl+C e continuar — re-execute o mesmo comando:
+.\.venv\Scripts\python.exe python\run_full_benchmark.py
+# subconjunto de instâncias ou configs:
+.\.venv\Scripts\python.exe python\run_full_benchmark.py --instances instances\P\n=20
+.\.venv\Scripts\python.exe python\run_full_benchmark.py --configs bvns_random salazar
+# regenerar só os relatórios (sem rodar o solver):
+.\.venv\Scripts\python.exe python\run_full_benchmark.py --report-only
+```
+
+> ⚠️ Big instances (n=100/200/500) são lentas — o GRASP leva ~25 min por instância
+> em n=500 (paper). O benchmark é pausável justamente para rodar em pedaços.
+
+### Benchmark de uma configuração só
+
+`python/run_benchmark.py` resolve instâncias com uma única configuração do solver,
+com checkpoint em `results/raw/<alg>_seed<seed>.csv`.
+
+```powershell
 # roda tudo (padrão: instances/, recursivo):
-.\.venv\Scripts\python.exe python\run_benchmark.py --alg bvns
-# parar com Ctrl+C e depois continuar — re-execute o mesmo comando:
 .\.venv\Scripts\python.exe python\run_benchmark.py --alg bvns
 # regenerar só a tabela (a partir do checkpoint, mesmo parcial):
 .\.venv\Scripts\python.exe python\run_benchmark.py --alg bvns --report-only

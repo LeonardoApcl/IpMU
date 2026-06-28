@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 
+#include "busca_local_salazar/grasp_salazar.hpp"
 #include "construction/grasp_construction.hpp"
 #include "core/instance.hpp"
 #include "core/problem.hpp"
@@ -19,7 +20,7 @@ namespace {
 void print_usage(const char* prog) {
     std::cerr
         << "Uso: " << prog << " <instancia> [opções]\n"
-        << "  --alg <bvns|rvns>     metaheurística (padrão: bvns)\n"
+        << "  --alg <bvns|rvns|salazar>  metaheurística (padrão: bvns)\n"
         << "  --shake <random|greedy>  estratégia de shaking (padrão: random)\n"
         << "  --alpha <A>           voracidade da construção GRASP (padrão: 0.51)\n"
         << "  --kmax <K>            máx. de trocas no shaking (padrão: p)\n"
@@ -124,6 +125,8 @@ int main(int argc, char** argv) {
             result = run_bvns(prob, initial, params, shake, local_search, rng);
         } else if (alg == "rvns") {
             result = run_rvns(prob, initial, params, shake, rng);
+        } else if (alg == "salazar") {
+            result = run_grasp(prob, initial, params, alpha, local_search, rng);
         } else {
             std::cerr << "erro: algoritmo desconhecido '" << alg << "'\n";
             return 2;
@@ -135,8 +138,9 @@ int main(int argc, char** argv) {
 
         // Precisão alta nos valores numéricos (comparação fiel com o SOTA).
         std::cout << std::setprecision(15);
-        std::cout << "Algoritmo: " << alg << "  (shaking=" << shake_name << ")\n"
-                  << "  iterações=" << result.iters
+        std::cout << "Algoritmo: " << alg;
+        if (alg != "salazar") std::cout << "  (shaking=" << shake_name << ")";
+        std::cout << "\n  iterações=" << result.iters
                   << "  objetivo=" << result.best.objective << "\n  medianas:";
         for (int m : result.best.medians) std::cout << " " << m;
         std::cout << "\n";
