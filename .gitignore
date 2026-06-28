@@ -16,6 +16,10 @@ ipmu
 *.o
 solucao.json
 
+# Instâncias grandes do benchmark (não versionadas por tamanho — ver README)
+instances/BigInstances500/
+instances/BigInstances100200/
+
 # Distribution / packaging
 .Python
 build/
