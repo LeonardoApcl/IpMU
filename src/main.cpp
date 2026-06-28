@@ -1,4 +1,6 @@
+#include <chrono>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <string>
 
@@ -24,6 +26,7 @@ void print_usage(const char* prog) {
         << "  --iters <N>           máx. de iterações (padrão: 100)\n"
         << "  --no-improve <N>      máx. iterações sem melhora (padrão: 29)\n"
         << "  --seed <S>            semente do RNG (padrão: 42)\n"
+        << "  --ucap <fator>        teto do upgrade u_a=fator·c² (padrão: 0.5; Fig.1: 1.0)\n"
         << "  --out <arquivo.json>  grava a solução para a visualização Python\n";
 }
 
@@ -53,6 +56,7 @@ int main(int argc, char** argv) {
     double alpha = 0.51;
     VnsParams params;  // k_max=0 (=> p), max_iters=100, max_iters_no_improve=29
     unsigned seed = 42;
+    double ucap = 0.5;  // teto do upgrade u_a = ucap·c² (0.5 = benchmark Espejo)
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -70,6 +74,8 @@ int main(int argc, char** argv) {
             params.max_iters_no_improve = std::stol(need_value(argc, argv, i, arg));
         } else if (arg == "--seed") {
             seed = static_cast<unsigned>(std::stoul(need_value(argc, argv, i, arg)));
+        } else if (arg == "--ucap") {
+            ucap = std::stod(need_value(argc, argv, i, arg));
         } else if (arg == "--out") {
             out_path = need_value(argc, argv, i, arg);
         } else if (arg == "-h" || arg == "--help") {
@@ -89,7 +95,8 @@ int main(int argc, char** argv) {
     }
 
     try {
-        const Instance inst = read_instance(instance_path);
+        Instance inst = read_instance(instance_path);
+        inst.u_factor = ucap;  // teto do upgrade antes de pré-computar o Problem
         const Problem prob(inst);
         Rng rng(seed);
 
@@ -97,6 +104,10 @@ int main(int argc, char** argv) {
                   << "  n=" << prob.n() << "  p=" << prob.p()
                   << "  B=" << prob.budget()
                   << "  arestas atualizáveis=" << inst.num_upgradable << "\n";
+
+        // Cronometra construção + metaheurística (tempo de solução, para a
+        // coluna "Tiempo" das comparações com o artigo).
+        const auto t_start = std::chrono::steady_clock::now();
 
         // Solução inicial via construção GRASP.
         const Solution initial = construct_grasp(prob, alpha, rng);
@@ -118,11 +129,20 @@ int main(int argc, char** argv) {
             return 2;
         }
 
+        const auto t_end = std::chrono::steady_clock::now();
+        const double tempo_s =
+            std::chrono::duration<double>(t_end - t_start).count();
+
+        // Precisão alta nos valores numéricos (comparação fiel com o SOTA).
+        std::cout << std::setprecision(15);
         std::cout << "Algoritmo: " << alg << "  (shaking=" << shake_name << ")\n"
                   << "  iterações=" << result.iters
                   << "  objetivo=" << result.best.objective << "\n  medianas:";
         for (int m : result.best.medians) std::cout << " " << m;
         std::cout << "\n";
+
+        // Linha de parse estável para o runner de benchmark.
+        std::cout << "tempo_s=" << tempo_s << "\n";
 
         if (!out_path.empty()) {
             const SolutionDetail detail = evaluate_detailed(prob, result.best.medians);

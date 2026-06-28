@@ -66,11 +66,16 @@ Instance read_instance(const std::string& path) {
         if (i < 0 || i >= n || j < 0 || j >= n) {
             throw std::runtime_error("índice de aresta fora do intervalo");
         }
-        const int idx = inst.at(i, j);
-        inst.time[idx] = c1;
-        inst.cost[idx] = c2;
-        inst.upgradable[idx] = (flag != 0) ? 1 : 0;
-        if (flag != 0) ++read_upgradable;
+        // flag = presença do arco no grafo A: só as linhas flag=1 são arcos de A
+        // (|A|=m, grafo esparso — Espejo & Marín 2023). As linhas flag=0 NÃO são
+        // arcos; ficam kInf (ausentes). Todo arco presente é atualizável.
+        if (flag != 0) {
+            const int idx = inst.at(i, j);
+            inst.time[idx] = c1;
+            inst.cost[idx] = c2;
+            inst.upgradable[idx] = 1;
+            ++read_upgradable;
+        }
     }
 
     // Linha final: demandas por nó.

@@ -28,6 +28,7 @@ public:
     int n() const { return inst_.n; }
     int p() const { return inst_.p; }
     double budget() const { return inst_.budget; }
+    double u_factor() const { return inst_.u_factor; }  // teto do upgrade: u_a = u_factor·c²
     double demand(int i) const { return inst_.demand[static_cast<std::size_t>(i)]; }
 
     // Tempo / custo do caminho lexicograficamente ótimo de 'from' a 'to'.

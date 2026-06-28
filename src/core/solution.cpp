@@ -56,7 +56,7 @@ double evaluate_impl(const Problem& prob, const std::vector<int>& medians,
         const double c = prob.edge_cost(u, v);
         base_cost += w * c;
         if (prob.edge_upgradable(u, v) && c > 0.0) {
-            upgradable_items.push_back(UpgradeItem{Edge{u, v}, w, c});
+            upgradable_items.push_back(UpgradeItem{Edge{u, v}, w, c, prob.u_factor() * c});
         }
     }
 

@@ -14,7 +14,7 @@ double relax_edges(std::vector<UpgradeItem>& items, double budget,
     double savings = 0.0;
     for (const UpgradeItem& it : items) {
         if (remaining <= 0.0) break;
-        const double x = std::min(it.cost, remaining);  // teto = custo (reduz até 0)
+        const double x = std::min(it.cap, remaining);  // teto = u_a = u_factor·c²
         if (x <= 0.0) continue;
         savings += x * it.weight;
         remaining -= x;
