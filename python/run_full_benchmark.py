@@ -19,6 +19,7 @@ import csv
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Garante importação mesmo quando invocado de dentro de python/.
@@ -67,51 +68,118 @@ def build_solver_args(cfg: dict, seed: int, extra: dict) -> list:
 
 
 # --------------------------------------------------------------------------- #
-# Execução de uma configuração (com checkpoint próprio)
+# Execução paralela (pool de workers; uma tarefa = um run instância×config×seed)
 # --------------------------------------------------------------------------- #
 
-def run_config(cfg: dict, instances: list, exe: Path, raw_dir: Path,
-               seed: int, extra: dict) -> None:
-    raw_path = raw_dir / f"{cfg['name']}_seed{seed}.csv"
-    done = load_done(raw_path)
-    pending = [(f, info) for (f, info) in instances
-               if os.path.relpath(f, REPO) not in done]
+def load_duration_estimates(raw_dir: Path, cfg_name: str) -> dict:
+    """tempo_s por basename a partir de QUALQUER checkpoint já existente da config
+    (qualquer seed). Usado só para ordenar as tarefas longest-first."""
+    est: dict = {}
+    for p in sorted(raw_dir.glob(f"{cfg_name}_seed*.csv")):
+        try:
+            with p.open("r", newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    try:
+                        est[row["basename"]] = float(row["tempo_s"])
+                    except (KeyError, ValueError):
+                        pass
+        except OSError:
+            pass
+    return est
 
-    print(f"\n=== {cfg['name']} ===  {len(done)} feitas | {len(pending)} pendentes")
-    if not pending:
+
+def build_tasks(configs: list, instances: list, raw_dir: Path,
+                seeds: list, extra: dict) -> list:
+    """Tarefas pendentes (config, seed, instância) ainda fora do checkpoint,
+    ordenadas por duração estimada decrescente (longest-first) para saturar os
+    núcleos e dissolver a cauda das instâncias grandes."""
+    BIG = 1e9  # desconhecidas (ex.: corrSergio/randomSergio) vão primeiro
+    tasks: list = []
+    for cfg in configs:
+        est = load_duration_estimates(raw_dir, cfg["name"])
+        for seed in seeds:
+            raw_path = raw_dir / f"{cfg['name']}_seed{seed}.csv"
+            done = load_done(raw_path)
+            args = build_solver_args(cfg, seed, extra)
+            for f, info in instances:
+                rel = os.path.relpath(f, REPO)
+                if rel in done:
+                    continue
+                tasks.append({
+                    "cfg": cfg, "seed": seed, "f": f, "info": info,
+                    "rel": rel, "args": args, "dur": est.get(info[0], BIG),
+                })
+    tasks.sort(key=lambda t: t["dur"], reverse=True)
+    return tasks
+
+
+def run_parallel(configs: list, instances: list, exe: Path, raw_dir: Path,
+                 seeds: list, extra: dict, jobs: int) -> None:
+    tasks = build_tasks(configs, instances, raw_dir, seeds, extra)
+    total = len(tasks)
+    if total == 0:
+        print("nada pendente: todos os (config, seed, instância) já no checkpoint.")
         return
+    print(f"tarefas pendentes: {total}  |  workers: {jobs}  |  seeds: {seeds}")
 
-    solver_args = build_solver_args(cfg, seed, extra)
-    fh, writer = open_raw_writer(raw_path)
-    failures = raw_path.with_name(raw_path.stem + "_failures.log")
+    # Escritores por (config, seed), abertos sob demanda. A escrita acontece só na
+    # thread principal (ao colher cada future), então não há corrida nos arquivos.
+    writers: dict = {}
 
-    processed = 0
+    def writer_for(cfg_name: str, seed: int):
+        key = (cfg_name, seed)
+        if key not in writers:
+            writers[key] = open_raw_writer(raw_dir / f"{cfg_name}_seed{seed}.csv")
+        return writers[key]
+
+    def work(task: dict):
+        obj, tempo_s = run_solver(exe, task["f"], task["args"])
+        return task, obj, tempo_s
+
+    processed = failures = 0
+    t0 = time.time()
+    pool = ThreadPoolExecutor(max_workers=jobs)
+    futures = {pool.submit(work, t): t for t in tasks}
     try:
-        for f, (base, n, m, p, B, idx) in pending:
-            rel = os.path.relpath(f, REPO)
-            t0 = time.time()
+        for fut in as_completed(futures):
+            task = futures[fut]
+            cfg = task["cfg"]
+            seed = task["seed"]
+            base, n, m, p, B, idx = task["info"]
             try:
-                obj, tempo_s = run_solver(exe, f, solver_args)
+                _t, obj, tempo_s = fut.result()
             except Exception as e:
-                with failures.open("a", encoding="utf-8") as ff:
-                    ff.write(f"{rel}\t{e}\n")
-                print(f"  FALHA {rel}: {e}", file=sys.stderr)
+                failures += 1
+                flog = raw_dir / f"{cfg['name']}_seed{seed}_failures.log"
+                with flog.open("a", encoding="utf-8") as ff:
+                    ff.write(f"{task['rel']}\t{e}\n")
+                print(f"  FALHA {cfg['name']} seed{seed} {task['rel']}: {e}",
+                      file=sys.stderr)
                 continue
+            fh, writer = writer_for(cfg["name"], seed)
             writer.writerow({
-                "instancia_rel": rel, "basename": base, "grupo": n,
+                "instancia_rel": task["rel"], "basename": base, "grupo": n,
                 "p": p, "B": B, "alg": cfg["alg"], "seed": seed,
                 "objetivo": repr(obj), "tempo_s": repr(tempo_s),
             })
             fh.flush()
             os.fsync(fh.fileno())
             processed += 1
-            print(f"  [{processed}/{len(pending)}] {base}  f={obj:.4f}"
-                  f"  t={tempo_s:.3f}s  (lote {time.time()-t0:.2f}s)")
+            if processed % 10 == 0 or processed == total:
+                el = time.time() - t0
+                rate = processed / el if el else 0.0
+                eta = (total - processed) / rate if rate else 0.0
+                print(f"  [{processed}/{total}] {cfg['name']} seed{seed} {base}"
+                      f"  f={obj:.4f} t={tempo_s:.2f}s"
+                      f"  | {rate * 3600:.0f}/h ETA {eta / 3600:.1f}h")
     except KeyboardInterrupt:
-        print(f"\ninterrompido em '{cfg['name']}' — checkpoint preservado.")
-        raise
+        print("\ninterrompido — checkpoints preservados; gerando relatórios do progresso...")
     finally:
-        fh.close()
+        pool.shutdown(wait=False, cancel_futures=True)
+        for fh, _w in writers.values():
+            fh.close()
+    print(f"\nconcluído: {processed}/{total} runs, {failures} falhas, "
+          f"{(time.time() - t0) / 3600:.2f}h de relógio.")
 
 
 # --------------------------------------------------------------------------- #
@@ -200,7 +268,13 @@ def main(argv=None):
                     help="apenas (re)gera os relatórios a partir dos checkpoints existentes")
     pa.add_argument("--tol", type=float, default=1e-6,
                     help="tolerância de isBest? (padrão: 1e-6)")
-    pa.add_argument("--seed", type=int, default=42)
+    pa.add_argument("--seed", type=int, default=42,
+                    help="seed única (compat). Ignorado se --seeds for dado.")
+    pa.add_argument("--seeds", nargs="+", type=int, default=None, metavar="SEED",
+                    help="lista de seeds a rodar (ex.: --seeds 43 44 45). "
+                         "Padrão: apenas --seed.")
+    pa.add_argument("--jobs", type=int, default=6,
+                    help="nº de runs do ipmu.exe em paralelo (padrão 6, p/ 6 núcleos).")
     pa.add_argument("--configs", nargs="+", choices=CONFIG_NAMES, default=None,
                     metavar="CONFIG",
                     help=("subset de configs a rodar. Padrão: todas. "
@@ -216,6 +290,7 @@ def main(argv=None):
         [c for c in ALL_CONFIGS if c["name"] in a.configs]
         if a.configs else ALL_CONFIGS
     )
+    seeds = a.seeds if a.seeds else [a.seed]
     raw_dir = Path(a.raw_dir)
     report_dir = Path(a.report_dir)
     sota = load_sota(Path(a.sota))
@@ -233,22 +308,21 @@ def main(argv=None):
             return 1
 
         instances = enumerate_instances(Path(a.instances))
-        print(f"instâncias: {len(instances)} totais | configs: {[c['name'] for c in configs]}")
+        print(f"instâncias: {len(instances)} totais | configs: "
+              f"{[c['name'] for c in configs]} | seeds: {seeds}")
 
         try:
-            for cfg in configs:
-                run_config(cfg, instances, exe, raw_dir, a.seed, extra)
+            run_parallel(configs, instances, exe, raw_dir, seeds, extra, a.jobs)
         except KeyboardInterrupt:
             print("\ninterrompido — gerando relatório do progresso atual...")
 
-    # Relatórios individuais por config.
-    for cfg in configs:
-        raw_path = raw_dir / f"{cfg['name']}_seed{a.seed}.csv"
-        build_report(raw_path, sota, report_dir,
-                     f"{cfg['name']}_seed{a.seed}", a.tol)
-
-    # Relatório combinado (lê todos os checkpoints acumulados).
-    build_combined_report(raw_dir, sota, report_dir, a.seed, a.tol)
+    # Relatórios por seed: individuais por config + combinado.
+    for seed in seeds:
+        for cfg in configs:
+            raw_path = raw_dir / f"{cfg['name']}_seed{seed}.csv"
+            build_report(raw_path, sota, report_dir,
+                         f"{cfg['name']}_seed{seed}", a.tol)
+        build_combined_report(raw_dir, sota, report_dir, seed, a.tol)
     return 0
 
 

@@ -57,6 +57,13 @@ void write_solution_json(const std::string& path, const std::string& instance_pa
         const auto& [u, v, new_cost] = detail.upgraded_edges[i];
         out << "[" << u << ", " << v << ", " << new_cost << "]";
     }
+    out << "],\n";
+
+    out << "  \"assignment\": [";
+    for (std::size_t i = 0; i < detail.assignment.size(); ++i) {
+        if (i) out << ", ";
+        out << detail.assignment[i];
+    }
     out << "]\n";
 
     out << "}\n";

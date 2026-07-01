@@ -4,8 +4,7 @@
 
 namespace ipmu {
 
-double relax_edges(std::vector<UpgradeItem>& items, double budget,
-                   std::vector<std::tuple<int, int, double>>* upgraded) {
+double relax_edges(std::vector<UpgradeItem>& items, double budget,std::vector<std::tuple<int, int, double>>* upgraded) {
     // Maior benefício por unidade (W) primeiro.
     std::sort(items.begin(), items.end(),
               [](const UpgradeItem& a, const UpgradeItem& b) { return a.weight > b.weight; });
