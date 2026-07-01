@@ -12,14 +12,17 @@ constexpr double kEps = 1e-9;
 
 // Núcleo da avaliação, compartilhado entre evaluate() e evaluate_detailed().
 // Quando 'detail' != nullptr, preenche arestas ativas e melhoradas.
-double evaluate_impl(const Problem& prob, const std::vector<int>& medians,
-                     SolutionDetail* detail) {
+double evaluate_impl(const Problem& prob, const std::vector<int>& medians,SolutionDetail* detail) {
     const int n = prob.n();
 
     // Acumula W(a) = soma das demandas dos clientes cujo caminho passa por 'a'.
     // Chave da aresta: u * n + v.
     std::unordered_map<long long, double> weight;
     weight.reserve(static_cast<std::size_t>(n) * 2);
+
+    if (detail != nullptr) {
+        detail->assignment.assign(static_cast<std::size_t>(n), -1);
+    }
 
     for (int client = 0; client < n; ++client) {
         // Mediana lexicograficamente mais próxima: menor tempo; empate -> menor custo.
@@ -38,6 +41,9 @@ double evaluate_impl(const Problem& prob, const std::vector<int>& medians,
         }
         if (best == -1) {
             return kInf;  // cliente inalcançável -> solução inviável
+        }
+        if (detail != nullptr) {
+            detail->assignment[static_cast<std::size_t>(client)] = best;
         }
 
         const double d = prob.demand(client);
@@ -60,8 +66,7 @@ double evaluate_impl(const Problem& prob, const std::vector<int>& medians,
         }
     }
 
-    std::vector<std::tuple<int, int, double>>* upgraded_ptr =
-        detail != nullptr ? &detail->upgraded_edges : nullptr;
+    std::vector<std::tuple<int, int, double>>* upgraded_ptr = detail != nullptr ? &detail->upgraded_edges : nullptr;
     const double savings = relax_edges(upgradable_items, prob.budget(), upgraded_ptr);
     const double objective = base_cost - savings;
 

@@ -22,6 +22,7 @@ struct SolutionDetail {
     double objective = kInf;
     std::vector<Edge> active_edges;                          // arestas usadas pelos clientes
     std::vector<std::tuple<int, int, double>> upgraded_edges;  // (u, v, novo_custo)
+    std::vector<int> assignment;  // assignment[cliente] = mediana que o serve (tam. n)
 };
 
 // Avalia o objetivo de um conjunto de medianas (caminho quente da busca local):
